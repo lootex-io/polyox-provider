@@ -3,8 +3,10 @@ import io
 import os
 import re
 import time
+import threading
 from urllib.parse import urljoin, urlparse
 from typing import Callable, TypeVar
+from contextlib import contextmanager
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -40,10 +42,134 @@ PLAYER_INFO_CACHE_TTL_SEC = int(
 )
 _PLAYER_INFO_CACHE: dict[str, tuple[float, dict]] = {}
 
+PROXY_ENABLED = os.getenv("NBA_PROXY_ENABLED", "false").lower() in (
+    "1",
+    "true",
+    "yes"
+)
+PROXY_SOURCE_URL = os.getenv(
+    "NBA_PROXY_SOURCE_URL",
+    "https://api.proxyscrape.com/v4/free-proxy-list/get?"
+    "request=display_proxies&country=us&protocol=http&"
+    "proxy_format=protocolipport&format=text&timeout=20000"
+)
+PROXY_REFRESH_SEC = max(
+    60,
+    int(os.getenv("NBA_PROXY_REFRESH_SEC", "900"))
+)
+_PROXY_STATE = {"proxies": [], "index": 0, "last_refresh": 0.0}
+_PROXY_LOCK = threading.Lock()
+_PROXY_REFRESH_STARTED = False
+
 INJURY_REPORT_INDEX_URL = os.getenv(
     "NBA_INJURY_REPORT_INDEX_URL",
     "https://official.nba.com/nba-injury-report-2020-21-season/"
 )
+
+
+def _fetch_proxy_list() -> list[str]:
+    session = requests.Session()
+    session.trust_env = False
+    response = session.get(PROXY_SOURCE_URL, timeout=10)
+    if response.status_code >= 400:
+        return []
+
+    proxies: list[str] = []
+    for raw in response.text.splitlines():
+        proxy = raw.strip()
+        if not proxy:
+            continue
+        if "://" not in proxy:
+            proxy = f"http://{proxy}"
+        proxies.append(proxy)
+
+    seen = set()
+    deduped: list[str] = []
+    for proxy in proxies:
+        if proxy in seen:
+            continue
+        seen.add(proxy)
+        deduped.append(proxy)
+    return deduped
+
+
+def _refresh_proxy_pool(force: bool = False) -> None:
+    if not PROXY_ENABLED:
+        return
+
+    now = time.time()
+    last_refresh = _PROXY_STATE["last_refresh"]
+    if (
+        not force
+        and _PROXY_STATE["proxies"]
+        and (now - last_refresh) < PROXY_REFRESH_SEC
+    ):
+        return
+
+    proxies = _fetch_proxy_list()
+    if proxies:
+        _PROXY_STATE["proxies"] = proxies
+        _PROXY_STATE["index"] = 0
+        _PROXY_STATE["last_refresh"] = now
+        print(f"proxy pool updated: {len(proxies)}")
+    elif force:
+        _PROXY_STATE["last_refresh"] = now
+
+
+def _next_proxy() -> str | None:
+    proxies: list[str] = _PROXY_STATE["proxies"]
+    if not proxies:
+        return None
+    index = _PROXY_STATE["index"] % len(proxies)
+    _PROXY_STATE["index"] = index + 1
+    return proxies[index]
+
+
+@contextmanager
+def _proxy_context():
+    if not PROXY_ENABLED:
+        yield None
+        return
+
+    _PROXY_LOCK.acquire()
+    proxy = None
+    prev_http = os.environ.get("HTTP_PROXY")
+    prev_https = os.environ.get("HTTPS_PROXY")
+    try:
+        _refresh_proxy_pool()
+        proxy = _next_proxy()
+        if proxy:
+            os.environ["HTTP_PROXY"] = proxy
+            os.environ["HTTPS_PROXY"] = proxy
+        yield proxy
+    finally:
+        if prev_http is None:
+            os.environ.pop("HTTP_PROXY", None)
+        else:
+            os.environ["HTTP_PROXY"] = prev_http
+        if prev_https is None:
+            os.environ.pop("HTTPS_PROXY", None)
+        else:
+            os.environ["HTTPS_PROXY"] = prev_https
+        _PROXY_LOCK.release()
+
+
+@app.on_event("startup")
+def _start_proxy_refresh() -> None:
+    global _PROXY_REFRESH_STARTED
+    if not PROXY_ENABLED or _PROXY_REFRESH_STARTED:
+        return
+    _PROXY_REFRESH_STARTED = True
+
+    def refresh_loop() -> None:
+        while True:
+            time.sleep(PROXY_REFRESH_SEC)
+            with _PROXY_LOCK:
+                _refresh_proxy_pool(force=True)
+
+    with _PROXY_LOCK:
+        _refresh_proxy_pool(force=True)
+    threading.Thread(target=refresh_loop, daemon=True).start()
 
 
 def _to_game_date(date_str: str) -> str:
@@ -118,7 +244,8 @@ def _with_retries(fn: Callable[[], T]) -> T:
 
     for attempt in range(retries + 1):
         try:
-            return fn()
+            with _proxy_context():
+                return fn()
         except Exception as exc:
             last_exc = exc
             if attempt >= retries:
