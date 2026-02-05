@@ -75,12 +75,23 @@ def _fetch_proxy_list() -> list[str]:
         return []
 
     proxies: list[str] = []
+    allowed_schemes = (
+        "http://",
+        "https://",
+        "socks4://",
+        "socks4a://",
+        "socks5://",
+        "socks5h://"
+    )
     for raw in response.text.splitlines():
         proxy = raw.strip()
         if not proxy:
             continue
         if "://" not in proxy:
             proxy = f"http://{proxy}"
+        proxy_lower = proxy.lower()
+        if not proxy_lower.startswith(allowed_schemes):
+            continue
         proxies.append(proxy)
 
     seen = set()
