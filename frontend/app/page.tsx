@@ -115,6 +115,20 @@ export default async function Home({
   }
 
   const gameRows = Array.isArray(games?.data) ? games.data : [];
+  const sortedGames = [...gameRows].sort((a, b) => {
+    const aTime = a?.dateTimeUtc ? new Date(a.dateTimeUtc).getTime() : NaN;
+    const bTime = b?.dateTimeUtc ? new Date(b.dateTimeUtc).getTime() : NaN;
+    if (Number.isNaN(aTime) && Number.isNaN(bTime)) {
+      return 0;
+    }
+    if (Number.isNaN(aTime)) {
+      return 1;
+    }
+    if (Number.isNaN(bTime)) {
+      return -1;
+    }
+    return aTime - bTime;
+  });
 
   return (
     <main>
@@ -157,10 +171,10 @@ export default async function Home({
           </div>
         </div>
         <div className="matchup-list">
-          {gameRows.length === 0 ? (
+          {sortedGames.length === 0 ? (
             <div className="empty">No games for this date.</div>
           ) : (
-            gameRows.map((game: any) => {
+            sortedGames.map((game: any) => {
               const home = teamMap.get(game.homeTeamId) ?? {};
               const away = teamMap.get(game.awayTeamId) ?? {};
               const homeLabel = home.name ?? home.abbrev ?? "Home";

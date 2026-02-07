@@ -100,8 +100,8 @@ NBA 查詢：
 - `GET /nba/player-stats`、`GET /nba/player-game-stat`
 - `GET /nba/injury-reports`、`GET /nba/injury-reports/entries`
 - `GET /nba/games/:id/markets`（比賽對應 Polymarket 市場）
-- `GET /nba/games/:id/context`（整合比賽/球隊/球員/近期戰績/傷兵/市場）
-- `POST /nba/analysis`（AI 賽局分析，需要 x402 付費）
+- `GET /nba/games/context?date=YYYY-MM-DD&home=AAA&away=BBB`（整合比賽/球隊/球員/近期戰績/傷兵/市場）
+- `POST /nba/analysis`（AI 賽局分析，需要 x402 付費；使用 `date+home+away`）
 
 Polymarket 查詢：
 - `GET /polymarket/events`、`GET /polymarket/markets`
@@ -109,7 +109,7 @@ Polymarket 查詢：
 - `GET /polymarket/orderbook?marketIds=...`
 
 x402 付費端點：
-- `POST /nba/analysis`（每個 session 一次性支付後可呼叫 AI 分析）
+- `POST /nba/analysis`（每次支付後可呼叫 AI 分析；使用 `date+home+away`）
 
 **NBA Service API（FastAPI）**
 - `GET /scoreboard?date=YYYY-MM-DD`

@@ -255,11 +255,13 @@ export class NbaController {
     return game;
   }
 
-  @Get("games/:id/context")
+  @Get("games/context")
   @ApiOperation({
-    summary: "Get game context (teams, roster, injuries, markets, recent form)"
+    summary: "Get game context by date + team abbreviations"
   })
-  @ApiParam({ name: "id", required: true })
+  @ApiQuery({ name: "date", required: true, description: "YYYY-MM-DD" })
+  @ApiQuery({ name: "home", required: true, description: "Home team abbrev" })
+  @ApiQuery({ name: "away", required: true, description: "Away team abbrev" })
   @ApiQuery({ name: "matchupLimit", required: false })
   @ApiQuery({ name: "recentLimit", required: false })
   @ApiQuery({ name: "marketPage", required: false })
@@ -268,14 +270,27 @@ export class NbaController {
     description: "Aggregated context for a single matchup.",
     type: GameContextResponseDto
   })
-  async getGameContext(
-    @Param("id") id: string,
+  async getGameContextByMatchup(
+    @Query("date") date?: string,
+    @Query("home") home?: string,
+    @Query("away") away?: string,
     @Query("matchupLimit") matchupLimit?: string,
     @Query("recentLimit") recentLimit?: string,
     @Query("marketPage") marketPage?: string,
     @Query("marketPageSize") marketPageSize?: string
   ) {
-    const context = await this.nbaService.getGameContext(id, {
+    if (!date) {
+      throw new BadRequestException("date is required, YYYY-MM-DD");
+    }
+    if (!home || !away) {
+      throw new BadRequestException("home and away are required");
+    }
+    this.parseDate(date);
+
+    const context = await this.nbaService.getGameContextByMatchup({
+      date,
+      home,
+      away,
       matchupLimit: matchupLimit ? Number(matchupLimit) : undefined,
       recentLimit: recentLimit ? Number(recentLimit) : undefined,
       marketPage: marketPage ? Number(marketPage) : undefined,
@@ -315,16 +330,28 @@ export class NbaController {
     type: GameAnalysisResponseDto
   })
   async analyzeGame(@Body() body: GameAnalysisRequestDto) {
-    if (!body?.gameId) {
-      throw new BadRequestException("gameId is required");
+    if (!body?.date) {
+      throw new BadRequestException("date is required, YYYY-MM-DD");
+    }
+    if (!body?.home || !body?.away) {
+      throw new BadRequestException("home and away are required");
     }
 
-    const result = await this.nbaService.analyzeGame(body.gameId, {
-      matchupLimit:
-        body.matchupLimit !== undefined ? Number(body.matchupLimit) : undefined,
-      recentLimit:
-        body.recentLimit !== undefined ? Number(body.recentLimit) : undefined
-    });
+    this.parseDate(body.date);
+
+    const result = await this.nbaService.analyzeGameByMatchup(
+      {
+        date: body.date,
+        home: body.home,
+        away: body.away
+      },
+      {
+        matchupLimit:
+          body.matchupLimit !== undefined ? Number(body.matchupLimit) : undefined,
+        recentLimit:
+          body.recentLimit !== undefined ? Number(body.recentLimit) : undefined
+      }
+    );
 
     if (!result) {
       throw new NotFoundException("game not found");

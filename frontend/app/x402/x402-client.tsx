@@ -271,7 +271,9 @@ export function X402Client() {
 
   const [analysisState, setAnalysisState] = useState<PaidState>(emptyPaidState);
   const [analysisForm, setAnalysisForm] = useState({
-    gameId: ""
+    date: "",
+    home: "",
+    away: ""
   });
   const [autoGameLabel, setAutoGameLabel] = useState<string | null>(null);
 
@@ -327,16 +329,26 @@ export function X402Client() {
   };
 
   const handleAnalysisRequest = async () => {
-    if (!analysisForm.gameId.trim()) {
+    if (!analysisForm.date.trim()) {
       setAnalysisState({
         ...emptyPaidState,
         status: "error",
-        error: "Please enter a game ID."
+        error: "Please enter a date."
+      });
+      return;
+    }
+    if (!analysisForm.home.trim() || !analysisForm.away.trim()) {
+      setAnalysisState({
+        ...emptyPaidState,
+        status: "error",
+        error: "Please enter home and away team abbreviations."
       });
       return;
     }
     const payload: Record<string, any> = {
-      gameId: analysisForm.gameId.trim()
+      date: analysisForm.date.trim(),
+      home: analysisForm.home.trim().toUpperCase(),
+      away: analysisForm.away.trim().toUpperCase()
     };
     // Temperature/model are server-controlled; do not send from client.
     await handlePaidRequest(
@@ -346,7 +358,7 @@ export function X402Client() {
   };
 
   useEffect(() => {
-    if (analysisForm.gameId) {
+    if (analysisForm.home && analysisForm.away && analysisForm.date) {
       return;
     }
 
@@ -359,15 +371,30 @@ export function X402Client() {
       const date = `${yyyy}-${mm}-${dd}`;
 
       try {
-        const response = await fetch(
-          `${apiBase}/nba/games?date=${date}&page=1&pageSize=50`,
-          { signal: controller.signal }
-        );
-        if (!response.ok) {
+        const [teamsResponse, gamesResponse] = await Promise.all([
+          fetch(`${apiBase}/nba/teams`, { signal: controller.signal }),
+          fetch(`${apiBase}/nba/games?date=${date}&page=1&pageSize=50`, {
+            signal: controller.signal
+          })
+        ]);
+        if (!teamsResponse.ok || !gamesResponse.ok) {
           return;
         }
-        const payload = await response.json();
-        const games = Array.isArray(payload?.data) ? payload.data : [];
+        const teamsPayload = await teamsResponse.json();
+        const gamesPayload = await gamesResponse.json();
+
+        const teamMap = new Map<string, string>();
+        if (Array.isArray(teamsPayload)) {
+          for (const team of teamsPayload) {
+            if (team?.id && team?.abbrev) {
+              teamMap.set(team.id, team.abbrev);
+            }
+          }
+        }
+
+        const games = Array.isArray(gamesPayload?.data)
+          ? gamesPayload.data
+          : [];
         if (games.length === 0) {
           return;
         }
@@ -379,10 +406,16 @@ export function X402Client() {
               new Date(b.dateTimeUtc).getTime()
           );
         const first = sorted[0] || games[0];
-        if (first?.id && !analysisForm.gameId) {
-          setAnalysisForm((prev) => ({ ...prev, gameId: first.id }));
-          const label = first.providerGameId || first.id;
-          setAutoGameLabel(label);
+        const homeAbbrev = teamMap.get(first?.homeTeamId) || "";
+        const awayAbbrev = teamMap.get(first?.awayTeamId) || "";
+        setAnalysisForm((prev) => ({
+          ...prev,
+          date: prev.date || date,
+          home: prev.home || homeAbbrev,
+          away: prev.away || awayAbbrev
+        }));
+        if (homeAbbrev && awayAbbrev) {
+          setAutoGameLabel(`${awayAbbrev}@${homeAbbrev}`);
         }
       } catch {
         // ignore
@@ -394,7 +427,7 @@ export function X402Client() {
     return () => {
       controller.abort();
     };
-  }, [analysisForm.gameId]);
+  }, [analysisForm.date, analysisForm.home, analysisForm.away]);
 
   return (
     <div className="x402-body">
@@ -445,16 +478,46 @@ export function X402Client() {
         <div className="card-title">AI Analysis</div>
         <div className="hint">Endpoint: {analysisEndpoint}</div>
         <label className="field">
-          <span>Game ID</span>
+          <span>Date (YYYY-MM-DD)</span>
           <input
             type="text"
-            placeholder="UUID or providerGameId"
-            value={analysisForm.gameId}
+            placeholder="2026-02-07"
+            value={analysisForm.date}
             onChange={(event) =>
-              setAnalysisForm((prev) => ({ ...prev, gameId: event.target.value }))
+              setAnalysisForm((prev) => ({ ...prev, date: event.target.value }))
             }
           />
         </label>
+        <div className="form-row">
+          <label className="field">
+            <span>Home (abbrev)</span>
+            <input
+              type="text"
+              placeholder="SAS"
+              value={analysisForm.home}
+              onChange={(event) =>
+                setAnalysisForm((prev) => ({
+                  ...prev,
+                  home: event.target.value
+                }))
+              }
+            />
+          </label>
+          <label className="field">
+            <span>Away (abbrev)</span>
+            <input
+              type="text"
+              placeholder="DAL"
+              value={analysisForm.away}
+              onChange={(event) =>
+                setAnalysisForm((prev) => ({
+                  ...prev,
+                  away: event.target.value
+                }))
+              }
+            />
+          </label>
+        </div>
         {autoGameLabel ? (
           <div className="hint">Auto-selected today first game: {autoGameLabel}</div>
         ) : null}

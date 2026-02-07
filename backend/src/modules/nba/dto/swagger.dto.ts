@@ -521,8 +521,14 @@ export class GameContextResponseDto {
 }
 
 export class GameAnalysisRequestDto {
-  @ApiProperty({ example: "9d6d84d0-9ac7-4a21-9b6a-1c2f4b9b3f6e" })
-  gameId!: string;
+  @ApiProperty({ example: "2026-02-07" })
+  date!: string;
+
+  @ApiProperty({ example: "SAS" })
+  home!: string;
+
+  @ApiProperty({ example: "DAL" })
+  away!: string;
 
   @ApiProperty({ example: 5, required: false })
   matchupLimit?: number;

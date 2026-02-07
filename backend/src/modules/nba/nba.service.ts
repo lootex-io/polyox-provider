@@ -1015,73 +1015,31 @@ export class NbaService {
       return null;
     }
 
-    const homeTeam =
-      game.homeTeam ??
-      (await this.teamRepo.findOne({ where: { id: game.homeTeamId } }));
-    const awayTeam =
-      game.awayTeam ??
-      (await this.teamRepo.findOne({ where: { id: game.awayTeamId } }));
-    const gameDate = game.dateTimeUtc ?? new Date();
-
-    const matchupLimit = this.clampLimit(options?.matchupLimit, 5, 1, 20);
-    const recentLimit = this.clampLimit(options?.recentLimit, 5, 1, 20);
-
-    const [homePlayers, awayPlayers, recentMatchups, recentHome, recentAway] =
-      await Promise.all([
-        homeTeam
-          ? this.listRosterForTeam(homeTeam.id, game.season, gameDate)
-          : Promise.resolve([]),
-        awayTeam
-          ? this.listRosterForTeam(awayTeam.id, game.season, gameDate)
-          : Promise.resolve([]),
-        homeTeam && awayTeam
-          ? this.listRecentMatchups(
-              homeTeam.id,
-              awayTeam.id,
-              gameDate,
-              matchupLimit
-            )
-          : Promise.resolve([]),
-        homeTeam
-          ? this.listRecentGamesForTeam(homeTeam.id, gameDate, recentLimit)
-          : Promise.resolve([]),
-        awayTeam
-          ? this.listRecentGamesForTeam(awayTeam.id, gameDate, recentLimit)
-          : Promise.resolve([])
-      ]);
-
-    const [teamStats, polymarket, injuries] = await Promise.all([
-      this.teamGameStatRepo.find({ where: { gameId: game.id } }),
-      this.listPolymarketMarketsForGame(game.id, {
-        page: options?.marketPage,
-        pageSize: options?.marketPageSize
-      }),
-      this.getLatestInjuryReportForTeams(
-        [homeTeam?.abbrev, awayTeam?.abbrev].filter(
-          (value): value is string => Boolean(value)
-        )
-      )
-    ]);
-
-    return {
-      game: this.stripGameRelations(game),
-      homeTeam: homeTeam ?? null,
-      awayTeam: awayTeam ?? null,
-      homePlayers,
-      awayPlayers,
-      recentMatchups,
-      recentForm: {
-        home: recentHome,
-        away: recentAway
-      },
-      injuries,
-      polymarket,
-      teamStats
-    };
+    return this.buildGameContext(game, options);
   }
 
-  async analyzeGame(
-    gameId: string,
+  async getGameContextByMatchup(input: {
+    date: string;
+    home: string;
+    away: string;
+    matchupLimit?: number;
+    recentLimit?: number;
+    marketPage?: number;
+    marketPageSize?: number;
+  }): Promise<GameContext | null> {
+    const game = await this.findGameByMatchup(input);
+    if (!game) {
+      return null;
+    }
+    return this.buildGameContext(game, input);
+  }
+
+  async analyzeGameByMatchup(
+    input: {
+      date: string;
+      home: string;
+      away: string;
+    },
     options?: {
       model?: string;
       temperature?: number;
@@ -1089,7 +1047,8 @@ export class NbaService {
       recentLimit?: number;
     }
   ): Promise<GameAnalysisResult | null> {
-    const context = await this.getGameContext(gameId, {
+    const context = await this.getGameContextByMatchup({
+      ...input,
       matchupLimit: options?.matchupLimit,
       recentLimit: options?.recentLimit,
       marketPage: 1,
@@ -1099,50 +1058,7 @@ export class NbaService {
       return null;
     }
 
-    const model =
-      options?.model ||
-      this.configService.get<string>("OPENAI_MODEL") ||
-      "gpt-4o-mini";
-    const envTemperature = Number(
-      this.configService.get<string>("OPENAI_TEMPERATURE")
-    );
-    const baseTemperature = Number.isFinite(envTemperature)
-      ? envTemperature
-      : 0.2;
-    const temperature = this.clampFloat(
-      options?.temperature ?? baseTemperature,
-      0,
-      1
-    );
-    const maxOutputTokens = this.parseEnvNumber(
-      "OPENAI_MAX_OUTPUT_TOKENS",
-      700
-    );
-
-    const payload = await this.buildAnalysisPayload(context);
-    const prompt = this.buildAnalysisPrompt(payload);
-
-    const client = await this.getOpenAIClient();
-    const response = await client.responses.create({
-      model,
-      input: prompt,
-      temperature,
-      max_output_tokens: maxOutputTokens
-    });
-
-    const outputText =
-      typeof response.output_text === "string"
-        ? response.output_text.trim()
-        : "";
-    const parsed = this.parseAnalysisJson(outputText);
-
-    return this.buildAnalysisResult({
-      context,
-      model,
-      outputText,
-      parsed,
-      usage: (response as any).usage ?? null
-    });
+    return this.runAnalysis(context, options);
   }
 
   async recordConflict(input: {
@@ -3232,6 +3148,42 @@ export class NbaService {
     });
   }
 
+  private async findTeamByAbbrev(abbrev: string) {
+    const normalized = (abbrev || "").trim().toLowerCase();
+    if (!normalized) {
+      return null;
+    }
+    return this.teamRepo
+      .createQueryBuilder("team")
+      .where("team.provider = :provider", { provider: PROVIDER })
+      .andWhere("lower(team.abbrev) = :abbrev", { abbrev: normalized })
+      .getOne();
+  }
+
+  private async findGameByMatchup(input: {
+    date: string;
+    home: string;
+    away: string;
+  }) {
+    const homeTeam = await this.findTeamByAbbrev(input.home);
+    const awayTeam = await this.findTeamByAbbrev(input.away);
+    if (!homeTeam || !awayTeam) {
+      return null;
+    }
+
+    const { start, end } = this.dateRange(input.date);
+    return this.gameRepo
+      .createQueryBuilder("game")
+      .leftJoinAndSelect("game.homeTeam", "homeTeam")
+      .leftJoinAndSelect("game.awayTeam", "awayTeam")
+      .where("game.provider = :provider", { provider: PROVIDER })
+      .andWhere("game.home_team_id = :homeTeamId", { homeTeamId: homeTeam.id })
+      .andWhere("game.away_team_id = :awayTeamId", { awayTeamId: awayTeam.id })
+      .andWhere("game.date_time_utc BETWEEN :start AND :end", { start, end })
+      .orderBy("game.dateTimeUtc", "ASC")
+      .getOne();
+  }
+
   private stripGameRelations(game: Game) {
     const { homeTeam, awayTeam, polymarketEvent, ...rest } = game as Game & {
       homeTeam?: Team;
@@ -3239,6 +3191,133 @@ export class NbaService {
       polymarketEvent?: Event | null;
     };
     return rest;
+  }
+
+  private async buildGameContext(
+    game: Game,
+    options?: {
+      matchupLimit?: number;
+      recentLimit?: number;
+      marketPage?: number;
+      marketPageSize?: number;
+    }
+  ): Promise<GameContext> {
+    const homeTeam =
+      (game as any).homeTeam ??
+      (await this.teamRepo.findOne({ where: { id: game.homeTeamId } }));
+    const awayTeam =
+      (game as any).awayTeam ??
+      (await this.teamRepo.findOne({ where: { id: game.awayTeamId } }));
+    const gameDate = game.dateTimeUtc ?? new Date();
+
+    const matchupLimit = this.clampLimit(options?.matchupLimit, 5, 1, 20);
+    const recentLimit = this.clampLimit(options?.recentLimit, 5, 1, 20);
+
+    const [homePlayers, awayPlayers, recentMatchups, recentHome, recentAway] =
+      await Promise.all([
+        homeTeam
+          ? this.listRosterForTeam(homeTeam.id, game.season, gameDate)
+          : Promise.resolve([]),
+        awayTeam
+          ? this.listRosterForTeam(awayTeam.id, game.season, gameDate)
+          : Promise.resolve([]),
+        homeTeam && awayTeam
+          ? this.listRecentMatchups(
+              homeTeam.id,
+              awayTeam.id,
+              gameDate,
+              matchupLimit
+            )
+          : Promise.resolve([]),
+        homeTeam
+          ? this.listRecentGamesForTeam(homeTeam.id, gameDate, recentLimit)
+          : Promise.resolve([]),
+        awayTeam
+          ? this.listRecentGamesForTeam(awayTeam.id, gameDate, recentLimit)
+          : Promise.resolve([])
+      ]);
+
+    const [teamStats, polymarket, injuries] = await Promise.all([
+      this.teamGameStatRepo.find({ where: { gameId: game.id } }),
+      this.listPolymarketMarketsForGame(game.id, {
+        page: options?.marketPage,
+        pageSize: options?.marketPageSize
+      }),
+      this.getLatestInjuryReportForTeams(
+        [homeTeam?.abbrev, awayTeam?.abbrev].filter(
+          (value): value is string => Boolean(value)
+        )
+      )
+    ]);
+
+    return {
+      game: this.stripGameRelations(game),
+      homeTeam: homeTeam ?? null,
+      awayTeam: awayTeam ?? null,
+      homePlayers,
+      awayPlayers,
+      recentMatchups,
+      recentForm: {
+        home: recentHome,
+        away: recentAway
+      },
+      injuries,
+      polymarket,
+      teamStats
+    };
+  }
+
+  private async runAnalysis(
+    context: GameContext,
+    options?: {
+      model?: string;
+      temperature?: number;
+    }
+  ): Promise<GameAnalysisResult> {
+    const model =
+      options?.model ||
+      this.configService.get<string>("OPENAI_MODEL") ||
+      "gpt-4o-mini";
+    const envTemperature = Number(
+      this.configService.get<string>("OPENAI_TEMPERATURE")
+    );
+    const baseTemperature = Number.isFinite(envTemperature)
+      ? envTemperature
+      : 0.2;
+    const temperature = this.clampFloat(
+      options?.temperature ?? baseTemperature,
+      0,
+      1
+    );
+    const maxOutputTokens = this.parseEnvNumber(
+      "OPENAI_MAX_OUTPUT_TOKENS",
+      700
+    );
+
+    const payload = await this.buildAnalysisPayload(context);
+    const prompt = this.buildAnalysisPrompt(payload);
+
+    const client = await this.getOpenAIClient();
+    const response = await client.responses.create({
+      model,
+      input: prompt,
+      temperature,
+      max_output_tokens: maxOutputTokens
+    });
+
+    const outputText =
+      typeof response.output_text === "string"
+        ? response.output_text.trim()
+        : "";
+    const parsed = this.parseAnalysisJson(outputText);
+
+    return this.buildAnalysisResult({
+      context,
+      model,
+      outputText,
+      parsed,
+      usage: (response as any).usage ?? null
+    });
   }
 
   private async listRosterForTeam(
