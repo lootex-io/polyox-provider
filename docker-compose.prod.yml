@@ -37,8 +37,6 @@ services:
       retries: 10
     security_opt:
       - no-new-privileges:true
-    cap_drop:
-      - ALL
     networks:
       - internal
 
@@ -130,8 +128,6 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
-    cap_drop:
-      - ALL
     networks:
       - internal
 
