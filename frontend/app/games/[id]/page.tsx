@@ -39,7 +39,30 @@ function formatDateTime(value?: string | null) {
   if (Number.isNaN(parsed.getTime())) {
     return value;
   }
-  return parsed.toISOString().replace("T", " ").slice(0, 16) + " UTC";
+  const timeZone = "America/New_York";
+  const dtf = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  });
+  return `${dtf.format(parsed).replace(",", "")} ET`.replace(/\s+/g, " ").trim();
+}
+
+function formatDateOnlyEt(value?: string | null) {
+  if (!value) return "-";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value).slice(0, 10);
+  const dtf = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  });
+  return dtf.format(parsed);
 }
 
 const TEAM_COLORS: Record<
@@ -251,7 +274,7 @@ export default async function GameDetail({
   const awayLabel = away.name ?? away.abbrev ?? "Away";
 
   const gameDate = game?.dateTimeUtc
-    ? String(game.dateTimeUtc).slice(0, 10)
+    ? formatDateOnlyEt(String(game.dateTimeUtc))
     : dateParam;
   const homeAbbrev = home?.abbrev?.toUpperCase();
   const awayAbbrev = away?.abbrev?.toUpperCase();
@@ -370,7 +393,7 @@ export default async function GameDetail({
             ? `${scored}-${allowed} ${scored > allowed ? "W" : "L"}`
             : row.status ?? "-";
         return {
-          date: row.dateTimeUtc?.slice(0, 10) ?? "-",
+          date: formatDateOnlyEt(row.dateTimeUtc),
           opponent: opponentLabel,
           result
         };

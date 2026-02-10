@@ -39,7 +39,19 @@ function formatDateTime(value?: string | null) {
   if (Number.isNaN(parsed.getTime())) {
     return value;
   }
-  return parsed.toISOString().replace("T", " ").slice(0, 16) + " UTC";
+  // Display tipoff in ET since the rest of the product uses "game date" in ET.
+  const timeZone = "America/New_York";
+  const dtf = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  });
+  // en-CA yields: "YYYY-MM-DD, HH:MM" (implementation-dependent literals)
+  return `${dtf.format(parsed).replace(",", "")} ET`.replace(/\s+/g, " ").trim();
 }
 
 const TEAM_COLORS: Record<
@@ -172,7 +184,7 @@ export default async function Home({
       <section className="toolbar">
         <form className="date-form" method="get">
           <label className="field">
-            <span>Date (UTC)</span>
+            <span>Date (ET)</span>
             <input name="date" defaultValue={date} />
           </label>
           <button type="submit">Load games</button>

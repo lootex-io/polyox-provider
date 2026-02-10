@@ -7,7 +7,8 @@ type Capability = "nba.matchup_brief" | "nba.matchup_full";
 type TaskCreateResponse = {
   id: string;
   capability: Capability;
-  status: string;
+  status?: string;
+  state?: string;
   createdAt?: string;
   endpoints?: {
     task?: string;
@@ -116,6 +117,11 @@ export function A2AClient() {
     });
     es.addEventListener("failed", (msg: MessageEvent) => {
       push("failed", safeJsonParse(msg.data) ?? msg.data);
+      void refreshTask(id);
+      setTimeout(stopStream, 250);
+    });
+    es.addEventListener("cancelled", (msg: MessageEvent) => {
+      push("cancelled", safeJsonParse(msg.data) ?? msg.data);
       void refreshTask(id);
       setTimeout(stopStream, 250);
     });
@@ -260,7 +266,7 @@ export function A2AClient() {
               </select>
             </label>
             <label className="field">
-              <span>Date (UTC)</span>
+              <span>Date (ET)</span>
               <input value={date} onChange={(e) => setDate(e.target.value)} />
             </label>
             <label className="field">

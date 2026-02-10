@@ -2,8 +2,6 @@ import {
   BadRequestException,
   Controller,
   Get,
-  HttpException,
-  HttpStatus,
   NotFoundException,
   Param,
   Post,
@@ -14,9 +12,16 @@ import {
 } from "@nestjs/common";
 import { ApiOperation, ApiParam, ApiQuery, ApiTags } from "@nestjs/swagger";
 import { InjectQueue } from "@nestjs/bullmq";
-import { Queue, QueueEvents } from "bullmq";
+import { Queue } from "bullmq";
 import type { Request, Response } from "express";
-import type { A2ACapabilityName, A2ATask } from "./a2a.types";
+import type {
+  A2ACapabilityName,
+  A2AJsonRpcRequest,
+  A2AJsonRpcResponse,
+  A2ATask,
+} from "./a2a.types";
+import { A2AEventsService } from "./a2a.events";
+import { buildAgentCard } from "./agent-card";
 
 function nowIso() {
   return new Date().toISOString();
@@ -45,22 +50,176 @@ function mapState(state: string | null): A2ATask["state"] {
   }
 }
 
+function mapStateWithReason(state: string | null, failedReason?: string | null): A2ATask["state"] {
+  const mapped = mapState(state);
+  if (mapped === "failed" && failedReason && failedReason.toLowerCase().includes("cancelled")) {
+    return "cancelled";
+  }
+  return mapped;
+}
+
+function rpcOk(id: any, result: any): A2AJsonRpcResponse {
+  return { jsonrpc: "2.0", id: id ?? null, result };
+}
+
+function rpcErr(
+  id: any,
+  code: number,
+  message: string,
+  data?: any
+): A2AJsonRpcResponse {
+  return { jsonrpc: "2.0", id: id ?? null, error: { code, message, data } };
+}
+
 @Controller("a2a")
 @ApiTags("A2A")
 export class A2AController {
-  constructor(@InjectQueue("a2a") private readonly queue: Queue) {}
+  constructor(
+    @InjectQueue("a2a") private readonly queue: Queue,
+    private readonly eventsService: A2AEventsService
+  ) {}
 
   @Post("rpc")
-  @ApiOperation({ summary: "JSON-RPC shim (not implemented yet)" })
-  async rpcShim() {
-    throw new HttpException(
-      {
-        error: "not_implemented",
-        message:
-          "RPC shim is not implemented yet. Use REST endpoints under /a2a/tasks."
-      },
-      HttpStatus.NOT_IMPLEMENTED
-    );
+  @ApiOperation({ summary: "JSON-RPC shim for A2A tasks (subset)" })
+  async rpcShim(@Req() req: Request, @Body() body: A2AJsonRpcRequest, @Res() res: Response) {
+    const id = body?.id ?? null;
+    const method = String(body?.method || "");
+
+    if (body?.jsonrpc !== "2.0") {
+      res.status(200).json(rpcErr(id, -32600, "invalid jsonrpc; expected 2.0"));
+      return;
+    }
+    if (!method) {
+      res.status(200).json(rpcErr(id, -32600, "missing method"));
+      return;
+    }
+
+    // Notifications (no id) are allowed.
+    const isNotification = body.id === undefined;
+
+    try {
+      switch (method) {
+        case "agent.getCard": {
+          if (isNotification) {
+            res.status(204).end();
+            return;
+          }
+          res.status(200).json(rpcOk(id, buildAgentCard(req)));
+          return;
+        }
+        case "tasks.create": {
+          const cap = String(body?.params?.capability || "").trim() as A2ACapabilityName;
+          if (cap !== "nba.matchup_brief" && cap !== "nba.matchup_full") {
+            res.status(200).json(rpcErr(id, -32602, "invalid params.capability"));
+            return;
+          }
+
+          // If x402 is enabled, the paid capability must go through the paywalled REST route
+          // because JSON-RPC doesn't carry the capability in query params for middleware bypass.
+          const x402Enabled = process.env.X402_ENABLED !== "false";
+          if (x402Enabled && cap === "nba.matchup_full") {
+            res.status(200).json(
+              rpcErr(id, 402, "payment required", {
+                hint: "Use POST /a2a/tasks?capability=nba.matchup_full (x402-protected).",
+              })
+            );
+            return;
+          }
+
+          const input =
+            body?.params?.input && typeof body.params.input === "object"
+              ? body.params.input
+              : body?.params?.arguments && typeof body.params.arguments === "object"
+                ? body.params.arguments
+                : {};
+
+          const job = await this.queue.add(cap, {
+            ...(input ?? {}),
+            _meta: {
+              capability: cap,
+              payerAddress: null,
+              createdAt: nowIso(),
+            },
+          });
+          const base = buildPublicBase(req);
+          const payload = {
+            id: String(job.id),
+            capability: cap,
+            state: "queued",
+            createdAt: nowIso(),
+            endpoints: {
+              task: `${base}/a2a/tasks/${job.id}`,
+              events: `${base}/a2a/tasks/${job.id}/events`,
+              cancel: `${base}/a2a/tasks/${job.id}/cancel`,
+            },
+          };
+          if (isNotification) {
+            res.status(204).end();
+            return;
+          }
+          res.status(200).json(rpcOk(id, payload));
+          return;
+        }
+        case "tasks.get": {
+          const taskId = String(body?.params?.id || "");
+          if (!taskId) {
+            res.status(200).json(rpcErr(id, -32602, "params.id is required"));
+            return;
+          }
+          const task = await this.getTask(taskId);
+          if (isNotification) {
+            res.status(204).end();
+            return;
+          }
+          res.status(200).json(rpcOk(id, task));
+          return;
+        }
+        case "tasks.events": {
+          const taskId = String(body?.params?.id || "");
+          if (!taskId) {
+            res.status(200).json(rpcErr(id, -32602, "params.id is required"));
+            return;
+          }
+          const base = buildPublicBase(req);
+          const payload = { events: `${base}/a2a/tasks/${taskId}/events` };
+          if (isNotification) {
+            res.status(204).end();
+            return;
+          }
+          res.status(200).json(rpcOk(id, payload));
+          return;
+        }
+        case "tasks.cancel": {
+          const taskId = String(body?.params?.id || "");
+          if (!taskId) {
+            res.status(200).json(rpcErr(id, -32602, "params.id is required"));
+            return;
+          }
+          const result = await this.cancelTask(taskId);
+          if (isNotification) {
+            res.status(204).end();
+            return;
+          }
+          res.status(200).json(rpcOk(id, result));
+          return;
+        }
+        default: {
+          if (isNotification) {
+            res.status(204).end();
+            return;
+          }
+          res.status(200).json(rpcErr(id, -32601, `method not found: ${method}`));
+          return;
+        }
+      }
+    } catch (e: any) {
+      const message = e instanceof Error ? e.message : String(e);
+      if (isNotification) {
+        res.status(204).end();
+        return;
+      }
+      res.status(200).json(rpcErr(id, -32000, message));
+    }
   }
 
   @Post("tasks")
@@ -99,7 +258,7 @@ export class A2AController {
     return {
       id: String(job.id),
       capability: cap,
-      status: "queued",
+      state: "queued",
       createdAt: nowIso(),
       endpoints: {
         task: `${base}/a2a/tasks/${job.id}`,
@@ -133,15 +292,16 @@ export class A2AController {
         ? meta.payerAddress
         : null;
 
+    const taskState = mapStateWithReason(state, job.failedReason);
     return {
       id: String(job.id),
       capability: job.name as any,
-      state: mapState(state),
+      state: taskState,
       createdAt,
       updatedAt,
-      result: state === "completed" ? job.returnvalue ?? null : undefined,
+      result: taskState === "completed" ? job.returnvalue ?? null : undefined,
       error:
-        state === "failed"
+        taskState === "failed" || taskState === "cancelled"
           ? { message: job.failedReason || "failed" }
           : undefined,
       payerAddress
@@ -170,11 +330,23 @@ export class A2AController {
     };
 
     const initialState = await job.getState();
-    send("state", { id: String(job.id), state: mapState(initialState), at: nowIso() });
+    const initialMapped = mapStateWithReason(initialState as any, job.failedReason);
+    send("state", { id: String(job.id), state: initialMapped, at: nowIso() });
 
-    const connection = { host: process.env.REDIS_HOST || "redis", port: Number(process.env.REDIS_PORT || 6379) };
-    const queueEvents = new QueueEvents("a2a", { connection });
-    await queueEvents.waitUntilReady();
+    if (initialState === "completed") {
+      send("completed", { id: String(job.id), returnvalue: job.returnvalue ?? null, at: nowIso() });
+      res.end();
+      return;
+    }
+    if (initialState === "failed") {
+      const reason = job.failedReason || "failed";
+      const evt = reason.toLowerCase().includes("cancelled") ? "cancelled" : "failed";
+      send(evt, { id: String(job.id), failedReason: reason, at: nowIso() });
+      res.end();
+      return;
+    }
+
+    const queueEvents = this.eventsService.events;
 
     const handler = (evtName: string) => (payload: any) => {
       if (!payload || String(payload.jobId) !== String(job.id)) {
@@ -211,11 +383,6 @@ export class A2AController {
       queueEvents.removeListener("failed", onFailed);
       queueEvents.removeListener("active", onActive);
       queueEvents.removeListener("waiting", onWaiting);
-      try {
-        await queueEvents.close();
-      } catch {
-        // ignore
-      }
     };
 
     req.on("close", cleanup);
@@ -231,7 +398,8 @@ export class A2AController {
     }
 
     const redis = await this.queue.client;
-    await redis.set(`a2a:cancel:${job.id}`, "1", "PX", 5 * 60 * 1000);
+    // Keep the cancel flag long enough for delayed/backlogged jobs to observe it.
+    await redis.set(`a2a:cancel:${job.id}`, "1", "PX", 24 * 60 * 60 * 1000);
 
     const state = (await job.getState()) as string;
     if (

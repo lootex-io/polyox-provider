@@ -285,7 +285,11 @@ def _pick(payload: dict, *keys: str):
 def _resolve_timeout(default_timeout: int) -> int:
     if not PROXY_ENABLED:
         return default_timeout
-    return min(default_timeout, PROXY_TIMEOUT_SEC)
+    # Only cap timeouts when a proxy is actively configured for this call.
+    # This lets the "direct fallback" attempt use the full NBA_API_TIMEOUT.
+    if os.environ.get("HTTP_PROXY") or os.environ.get("HTTPS_PROXY"):
+        return min(default_timeout, PROXY_TIMEOUT_SEC)
+    return default_timeout
 
 
 def _team_stats_from_boxscore(box: dict):
@@ -847,12 +851,12 @@ async def health():
 
 @app.get("/scoreboard")
 async def scoreboard(date: str = Query(None, description="YYYY-MM-DD")):
-    timeout = _resolve_timeout(int(os.getenv("NBA_API_TIMEOUT", "30")))
+    timeout_default = int(os.getenv("NBA_API_TIMEOUT", "30"))
     game_date = _to_game_date(date) if date else None
     try:
         payload = _with_retries(
             lambda: scoreboardv2.ScoreboardV2(
-                game_date=game_date, timeout=timeout
+                game_date=game_date, timeout=_resolve_timeout(timeout_default)
             ).get_normalized_dict()
         )
 
@@ -863,7 +867,11 @@ async def scoreboard(date: str = Query(None, description="YYYY-MM-DD")):
         }
     except Exception:
         try:
-            return _with_retries(lambda: _fetch_scoreboard_raw(game_date, timeout))
+            return _with_retries(
+                lambda: _fetch_scoreboard_raw(
+                    game_date, _resolve_timeout(timeout_default)
+                )
+            )
         except Exception as raw_exc:
             return {
                 "game_date": game_date,
@@ -885,7 +893,7 @@ async def schedule(
             detail="Provide date=YYYY-MM-DD or from=YYYY-MM-DD&to=YYYY-MM-DD"
         )
 
-    timeout = _resolve_timeout(int(os.getenv("NBA_API_TIMEOUT", "30")))
+    timeout_default = int(os.getenv("NBA_API_TIMEOUT", "30"))
 
     if date:
         dates = [_parse_date(date)]
@@ -906,7 +914,9 @@ async def schedule(
     for season_year in sorted(season_years):
         for season_type in ("Regular Season", "Playoffs"):
             data = _with_retries(
-                lambda: _fetch_schedule(season_year, season_type, timeout)
+                lambda: _fetch_schedule(
+                    season_year, season_type, _resolve_timeout(timeout_default)
+                )
             )
             for game in _schedule_games_for_dates(data, date_keys):
                 game_id = game.get("gameId")
@@ -931,13 +941,13 @@ async def schedule(
 
 @app.get("/boxscore/traditional")
 async def boxscore_traditional(game_id: str = Query(..., description="NBA GAME_ID")):
-    timeout = _resolve_timeout(int(os.getenv("NBA_API_TIMEOUT", "30")))
+    timeout_default = int(os.getenv("NBA_API_TIMEOUT", "30"))
 
     try:
         try:
             payload = _with_retries(
                 lambda: boxscoretraditionalv3.BoxScoreTraditionalV3(
-                    game_id=game_id, timeout=timeout
+                    game_id=game_id, timeout=_resolve_timeout(timeout_default)
                 ).get_dict()
             )
         except Exception:
@@ -945,7 +955,7 @@ async def boxscore_traditional(game_id: str = Query(..., description="NBA GAME_I
                 lambda: _fetch_boxscore_raw(
                     boxscoretraditionalv3.BoxScoreTraditionalV3.endpoint,
                     game_id,
-                    timeout
+                    _resolve_timeout(timeout_default)
                 )
             )
 
@@ -961,13 +971,13 @@ async def boxscore_traditional(game_id: str = Query(..., description="NBA GAME_I
 
 @app.get("/boxscore/advanced")
 async def boxscore_advanced(game_id: str = Query(..., description="NBA GAME_ID")):
-    timeout = _resolve_timeout(int(os.getenv("NBA_API_TIMEOUT", "30")))
+    timeout_default = int(os.getenv("NBA_API_TIMEOUT", "30"))
 
     try:
         try:
             payload = _with_retries(
                 lambda: boxscoreadvancedv3.BoxScoreAdvancedV3(
-                    game_id=game_id, timeout=timeout
+                    game_id=game_id, timeout=_resolve_timeout(timeout_default)
                 ).get_dict()
             )
         except Exception:
@@ -975,7 +985,7 @@ async def boxscore_advanced(game_id: str = Query(..., description="NBA GAME_ID")
                 lambda: _fetch_boxscore_raw(
                     boxscoreadvancedv3.BoxScoreAdvancedV3.endpoint,
                     game_id,
-                    timeout
+                    _resolve_timeout(timeout_default)
                 )
             )
 
@@ -993,13 +1003,13 @@ async def players_all(
     season: str = Query(..., description="e.g. 2024-25"),
     current_only: bool = Query(False)
 ):
-    timeout = _resolve_timeout(int(os.getenv("NBA_API_TIMEOUT", "30")))
+    timeout_default = int(os.getenv("NBA_API_TIMEOUT", "30"))
 
     payload = _with_retries(
         lambda: commonallplayers.CommonAllPlayers(
             season=season,
             is_only_current_season=1 if current_only else 0,
-            timeout=timeout
+            timeout=_resolve_timeout(timeout_default)
         ).get_normalized_dict()
     )
 
@@ -1010,7 +1020,7 @@ async def players_all(
 
 @app.get("/players/info")
 async def player_info(player_id: str = Query(..., description="NBA PLAYER_ID")):
-    timeout = _resolve_timeout(int(os.getenv("NBA_API_TIMEOUT", "30")))
+    timeout_default = int(os.getenv("NBA_API_TIMEOUT", "30"))
 
     cached = _get_cached_player_info(player_id)
     if cached:
@@ -1019,7 +1029,7 @@ async def player_info(player_id: str = Query(..., description="NBA PLAYER_ID")):
     try:
         payload = _with_retries(
             lambda: commonplayerinfo.CommonPlayerInfo(
-                player_id=player_id, timeout=timeout
+                player_id=player_id, timeout=_resolve_timeout(timeout_default)
             ).get_normalized_dict()
         )
         response = {
@@ -1030,7 +1040,9 @@ async def player_info(player_id: str = Query(..., description="NBA PLAYER_ID")):
     except Exception as exc:
         try:
             raw = _with_retries(
-                lambda: _fetch_common_player_info_raw(player_id, timeout)
+                lambda: _fetch_common_player_info_raw(
+                    player_id, _resolve_timeout(timeout_default)
+                )
             )
             normalized = _normalize_result_sets(raw)
             response = {
@@ -1056,11 +1068,13 @@ async def team_roster(
     team_id: str = Query(..., description="NBA TEAM_ID"),
     season: str = Query(..., description="e.g. 2024-25")
 ):
-    timeout = _resolve_timeout(int(os.getenv("NBA_API_TIMEOUT", "30")))
+    timeout_default = int(os.getenv("NBA_API_TIMEOUT", "30"))
 
     payload = _with_retries(
         lambda: commonteamroster.CommonTeamRoster(
-            team_id=team_id, season=season, timeout=timeout
+            team_id=team_id,
+            season=season,
+            timeout=_resolve_timeout(timeout_default)
         ).get_normalized_dict()
     )
 

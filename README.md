@@ -111,6 +111,7 @@ Polymarket 查詢：
 
 x402 / A2A Agent：
 - `GET /.well-known/agent-card.json`（能力宣告與入口）
+- `POST /a2a/rpc`（JSON-RPC shim；支援 `agent.getCard`, `tasks.create/get/events/cancel`，付費能力建議用 REST）
 - `POST /a2a/tasks?capability=nba.matchup_brief`（免費；body 放 `input` 或直接放參數）
 - `POST /a2a/tasks?capability=nba.matchup_full`（x402 付費）
 - `GET /a2a/tasks/:id`（查狀態/結果）
@@ -121,7 +122,7 @@ MCP Server（HTTP JSON-RPC）：
 - `POST /mcp`
   - `initialize`
   - `tools/list`
-  - `tools/call`（第一批工具：`nba.getGameContext`, `pm.getPrices`, `analysis.nbaMatchup`, `analysis.computeEdge`, `pm.getRecentTrades`, `ops.getFreshness`）
+  - `tools/call`（工具：`nba.getGameContext`, `pm.getPrices`, `analysis.nbaMatchup`, `analysis.computeEdge`, `pm.getRecentTrades`, `alerts.detectLargeTrades`, `ops.getFreshness`）
 
 x402 付費端點：
 - `POST /nba/analysis`（每次支付後可呼叫 AI 分析；使用 `date+home+away`）
@@ -216,3 +217,4 @@ npm run polymarket:sync
 **深入文件**
 - `nba-ingestion-guide.md`：Polymarket NBA 同步策略與參數建議。
 - `nba-api-sync.md`：NBA API 同步流程與 DB entity 對照。
+- `a2a-mcp-guide.md`：A2A 與 MCP 的使用流程、範例與注意事項。

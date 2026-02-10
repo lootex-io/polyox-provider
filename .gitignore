@@ -29,6 +29,10 @@ Thumbs.db
 # Logs
 *.log
 
+# Python
+__pycache__/
+*.py[cod]
+
 # Turbo/Next/Parcel caches
 .turbo/
 .parcel-cache/

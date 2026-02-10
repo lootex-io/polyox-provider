@@ -51,6 +51,18 @@ function teamTagStyle(abbrev?: string) {
   return { background: color.bg, color: color.text };
 }
 
+function formatDateOnlyEt(value?: string | null) {
+  if (!value) return "-";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value).slice(0, 10);
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(parsed);
+}
+
 async function fetchJson(url: string) {
   try {
     const res = await fetch(url, { cache: "no-store" });
@@ -163,7 +175,7 @@ export default async function TeamPage({
                 ? `${scored}-${allowed} ${scored > allowed ? "W" : "L"}`
                 : row.status ?? "-";
             return {
-              date: row.dateTimeUtc?.slice(0, 10) ?? "-",
+              date: formatDateOnlyEt(row.dateTimeUtc),
               opponent,
               result
             };

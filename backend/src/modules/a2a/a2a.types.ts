@@ -18,3 +18,18 @@ export type A2ATask = {
   payerAddress?: string | null;
 };
 
+export type A2AJsonRpcId = string | number | null;
+
+export type A2AJsonRpcRequest = {
+  jsonrpc?: string;
+  id?: A2AJsonRpcId;
+  method?: string;
+  params?: any;
+};
+
+export type A2AJsonRpcResponse = {
+  jsonrpc: "2.0";
+  id: A2AJsonRpcId;
+  result?: any;
+  error?: { code: number; message: string; data?: any };
+};

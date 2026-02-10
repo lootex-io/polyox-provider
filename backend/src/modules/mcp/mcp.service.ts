@@ -98,6 +98,21 @@ export class McpService {
         }
       },
       {
+        name: "alerts.detectLargeTrades",
+        description:
+          "Detect unusually large trades from recent CLOB trades for a tokenId (best-effort).",
+        inputSchema: {
+          type: "object",
+          required: ["tokenId"],
+          properties: {
+            tokenId: { type: "string" },
+            limit: { type: "number" },
+            minNotionalUsd: { type: "number", minimum: 0 },
+            minSize: { type: "number", minimum: 0 }
+          }
+        }
+      },
+      {
         name: "ops.getFreshness",
         description:
           "Check data freshness for NBA games + Polymarket sync state (DB-based).",
@@ -237,6 +252,58 @@ export class McpService {
           }
           throw err;
         }
+      }
+      case "alerts.detectLargeTrades": {
+        const tokenId = String(args?.tokenId || "");
+        const limit = args?.limit !== undefined ? Number(args.limit) : 100;
+        const minNotionalUsd =
+          args?.minNotionalUsd !== undefined ? Number(args.minNotionalUsd) : 2500;
+        const minSize = args?.minSize !== undefined ? Number(args.minSize) : 0;
+        if (!tokenId) {
+          throw new Error("tokenId is required");
+        }
+
+        const payload = await this.clobClient.getRecentTrades(tokenId, limit);
+        const tradesRaw = Array.isArray(payload)
+          ? payload
+          : Array.isArray((payload as any)?.trades)
+            ? (payload as any).trades
+            : Array.isArray((payload as any)?.data)
+              ? (payload as any).data
+              : [];
+
+        const trades = tradesRaw
+          .map((t: any) => {
+            const price = Number(t?.price ?? t?.p ?? t?.rate);
+            const size = Number(t?.size ?? t?.qty ?? t?.amount ?? t?.shares);
+            const ts = t?.timestamp ?? t?.ts ?? t?.createdAt ?? t?.created_at ?? null;
+            const notional = Number.isFinite(price) && Number.isFinite(size) ? price * size : null;
+            return {
+              ...t,
+              _computed: {
+                price: Number.isFinite(price) ? price : null,
+                size: Number.isFinite(size) ? size : null,
+                notionalUsd: notional !== null && Number.isFinite(notional) ? notional : null,
+                timestamp: ts
+              }
+            };
+          })
+          .filter((t: any) => {
+            const n = t?._computed?.notionalUsd;
+            const s = t?._computed?.size;
+            const passNotional = minNotionalUsd > 0 ? (n !== null && n >= minNotionalUsd) : true;
+            const passSize = minSize > 0 ? (s !== null && s >= minSize) : true;
+            return passNotional && passSize;
+          });
+
+        return {
+          ok: true,
+          tokenId,
+          scanned: tradesRaw.length,
+          matches: trades.length,
+          thresholds: { minNotionalUsd, minSize },
+          trades
+        };
       }
       case "ops.getFreshness": {
         const now = Date.now();
