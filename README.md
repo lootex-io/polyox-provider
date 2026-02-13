@@ -8,6 +8,10 @@
 Built with: A2A Protocol | x402 Payments | MCP Tools | ERC-8004 Identity
 ```
 
+[![ERC-8004 Registered](https://img.shields.io/badge/ERC--8004-Base%20Mainnet-blue?logo=ethereum)](https://www.8004scan.io/agents/base/14352)
+[![x402 Enabled](https://img.shields.io/badge/x402-Payments%20Enabled-green)](https://www.x402.org/)
+[![A2A Protocol](https://img.shields.io/badge/A2A-Agent%20Protocol-purple)](https://api-hoobs.polyox.io/.well-known/agent-card.json)
+
 ---
 
 ## The Problem
@@ -155,6 +159,8 @@ curl -sX POST https://api-hoobs.polyox.io/mcp \
 On-chain verifiable agent identity for trust and discoverability.
 
 **Registered on Base Mainnet:** [View on 8004scan](https://www.8004scan.io/agents/base/14352)
+
+[![8004scan Agent Profile](https://www.8004scan.io/og/agents/base/14352.png)](https://www.8004scan.io/agents/base/14352)
 
 ```json
 {
