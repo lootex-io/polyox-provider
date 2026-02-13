@@ -150,9 +150,11 @@ curl -sX POST https://api-hoobs.polyox.io/mcp \
 | `alerts.detectLargeTrades` | Whale movement alerts |
 | `ops.getFreshness` | Data freshness check |
 
-### 4. ERC-8004 Agent Identity (Planned)
+### 4. ERC-8004 Agent Identity
 
 On-chain verifiable agent identity for trust and discoverability.
+
+**Registered on Base Mainnet:** [View on 8004scan](https://www.8004scan.io/agents/base/14352)
 
 ```json
 {
@@ -345,6 +347,7 @@ sequenceDiagram
 |----------|-----|
 | **API** | https://api-hoobs.polyox.io |
 | **App** | https://app-hoobs.polyox.io |
+| **ERC-8004** | https://www.8004scan.io/agents/base/14352 |
 | **Agent Card** | https://api-hoobs.polyox.io/.well-known/agent-card.json |
 | **A2A Console** | https://app-hoobs.polyox.io/a2a |
 | **MCP Console** | https://app-hoobs.polyox.io/mcp |
@@ -384,7 +387,7 @@ curl -sX POST https://api-hoobs.polyox.io/mcp \
 |----------------------|-------------------|
 | **x402 Payments** | Native x402 middleware with Coinbase facilitator |
 | **A2A Protocol** | Full A2A JSON-RPC + REST implementation |
-| **ERC-8004** | Agent identity ready (registration pending) |
+| **ERC-8004** | [Registered on Base Mainnet](https://www.8004scan.io/agents/base/14352) |
 | **Agents/AI** | GPT-4o powered matchup analysis |
 | **Real-world utility** | Live NBA data + Polymarket integration |
 
@@ -406,7 +409,7 @@ curl -sX POST https://api-hoobs.polyox.io/mcp \
 - [x] x402 payment middleware
 - [x] MCP tools endpoint
 - [x] AI-powered analysis
-- [ ] ERC-8004 on-chain registration (Base)
+- [x] ERC-8004 on-chain registration (Base)
 - [ ] SKALE integration for gasless transactions
 - [ ] Multi-agent orchestration demo
 - [ ] Virtuals Agent Launchpad integration
