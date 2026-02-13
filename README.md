@@ -65,6 +65,70 @@ flowchart LR
 
 ---
 
+## User Flow (OpenClaw Integration)
+
+> **Demonstrates real-world workflow: Discover → Decide → Pay/Settle → Outcome**
+
+```mermaid
+flowchart TB
+    subgraph DISCOVER["1️⃣ DISCOVER"]
+        U1[User opens OpenClaw]
+        U2[Browse NBA games today]
+        U3[Select LAL vs BOS matchup]
+    end
+
+    subgraph DECIDE["2️⃣ DECIDE"]
+        D1[View game context & injury report]
+        D2[Check Polymarket odds]
+        D3[Request AI analysis]
+    end
+
+    subgraph PAY["3️⃣ PAY / SETTLE"]
+        P1[Receive 402 Payment Required]
+        P2[Approve $0.05 USDC on Base]
+        P3[x402 settles payment]
+    end
+
+    subgraph OUTCOME["4️⃣ OUTCOME"]
+        O1[Receive AI matchup analysis]
+        O2[View betting edge calculation]
+        O3[Make informed decision]
+    end
+
+    U1 --> U2 --> U3
+    U3 --> D1 --> D2 --> D3
+    D3 --> P1 --> P2 --> P3
+    P3 --> O1 --> O2 --> O3
+```
+
+### Step-by-Step Walkthrough
+
+| Step | Action | Technical Detail |
+|------|--------|------------------|
+| **1. Discover** | User opens OpenClaw and browses today's NBA games | `GET /nba/games?date=2026-02-14` |
+| **2. Select** | User picks LAL vs BOS matchup | UI displays game context |
+| **3. Free Preview** | View basic stats, injury reports, Polymarket odds | `nba.matchup_brief` (free) |
+| **4. Request Analysis** | User clicks "Get AI Analysis" | `POST /a2a/tasks?capability=nba.matchup_full` |
+| **5. Pay** | Wallet prompts $0.05 USDC payment | x402 → Base network → USDC transfer |
+| **6. Settle** | Payment confirmed on-chain | x402 facilitator returns signature |
+| **7. Outcome** | Full AI analysis delivered | GPT-4o matchup breakdown + edge calculation |
+| **8. Decide** | User makes informed betting decision | Armed with data + AI insights |
+
+### OpenClaw Screenshots Flow
+
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│   🏀 Games      │     │   📊 Preview    │     │   💳 Pay x402   │     │   🤖 AI Result  │
+│                 │     │                 │     │                 │     │                 │
+│  LAL vs BOS     │ ──► │  Stats & Odds   │ ──► │  $0.05 USDC     │ ──► │  Full Analysis  │
+│  GSW vs MIA     │     │  Injury Report  │     │  on Base        │     │  Edge: +3.2%    │
+│  ...            │     │  Market Price   │     │  [Approve]      │     │  Confidence: 78%│
+└─────────────────┘     └─────────────────┘     └─────────────────┘     └─────────────────┘
+      DISCOVER               DECIDE                PAY/SETTLE              OUTCOME
+```
+
+---
+
 ## Agentic Commerce Features
 
 ### 1. A2A Protocol (Agent-to-Agent)
