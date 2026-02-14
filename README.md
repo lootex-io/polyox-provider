@@ -14,6 +14,9 @@ Built with: A2A Protocol | x402 Payments | MCP Tools | ERC-8004 Identity
 
 ---
 
+## Demo Video
+https://x.com/LootexIO/status/2022528727440314681
+
 ## The Problem
 
 AI agents need real-time sports data to make informed predictions, but:
@@ -420,12 +423,12 @@ sequenceDiagram
 
 | Endpoint | URL |
 |----------|-----|
-| **API** | https://api-hoobs.polyox.io |
 | **App** | https://app-hoobs.polyox.io |
 | **ERC-8004** | https://www.8004scan.io/agents/base/14352 |
 | **Agent Card** | https://api-hoobs.polyox.io/.well-known/agent-card.json |
 | **A2A Console** | https://app-hoobs.polyox.io/a2a |
 | **MCP Console** | https://app-hoobs.polyox.io/mcp |
+| **SKILL.md for AI Agents** | https://polyox.io/skill.md |
 
 ### Quick Test Commands
 
@@ -513,6 +516,6 @@ MIT
 
 ---
 
-> **Demo Video**: [Coming Soon]
+> **Demo Video**: https://x.com/LootexIO/status/2022528727440314681
 >
-> **Submission**: [DoraHacks x402 Hackathon](https://dorahacks.io/hackathon/x402)
+> **Submission**: [DoraHacks x402 Hackathon](https://dorahacks.io/buidl/39320)
